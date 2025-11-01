@@ -168,7 +168,7 @@ const config = createConfig({
     [base.id]: http(),
   },
   connectors: [
-    farcasterConnector, // Farcaster wallet first (for priority in frame)
+    farcasterConnector, // Farcaster wallet first - highest priority
     injected(),
     walletConnect({
       projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'YOUR_PROJECT_ID',

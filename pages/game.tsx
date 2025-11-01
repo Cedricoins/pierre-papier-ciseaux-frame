@@ -1,5 +1,5 @@
 import sdk from '@farcaster/frame-sdk';
-import { useConnect } from 'wagmi';
+import { useConnect, useDisconnect } from 'wagmi';
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
@@ -88,8 +88,10 @@ export default function Game() {
   const { isSuccess } = useWaitForTransactionReceipt({ hash });
   
   const { connect, connectors } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { connector: activeConnector } = useAccount();
 
-  // Initialize Farcaster SDK and auto-connect Farcaster wallet when in frame
+  // Initialize Farcaster SDK and force Farcaster wallet connection when in frame
   useEffect(() => {
     const initFarcaster = async () => {
       const isInFarcaster = window.parent !== window;
@@ -101,22 +103,39 @@ export default function Game() {
           const context = await sdk.context;
           setFarcasterUser(context.user);
           
-          // Find and connect to Farcaster wallet connector
+          // Find Farcaster wallet connector
           const farcasterConnector = connectors.find(c => c.id === 'farcaster');
           
-          if (farcasterConnector) {
-            // Auto-connect if not already connected
-            if (!isConnected) {
+          if (!farcasterConnector) {
+            console.warn('Farcaster connector not found in available connectors');
+            sdk.actions.ready();
+            return;
+          }
+
+          // Check if already connected to Farcaster wallet
+          const isFarcasterConnected = isConnected && activeConnector?.id === 'farcaster';
+          
+          if (!isFarcasterConnected) {
+            // Disconnect from any other wallet (like MetaMask) first
+            if (isConnected && activeConnector && activeConnector.id !== 'farcaster') {
+              console.log('Disconnecting from', activeConnector.name, 'to use Farcaster wallet');
               try {
-                await connect({ connector: farcasterConnector });
-                console.log('✅ Connected to Farcaster wallet');
-              } catch (connectError: any) {
-                console.error('Farcaster wallet connection error:', connectError);
-                // Don't block the app if connection fails
+                await disconnect();
+              } catch (disconnectError) {
+                console.warn('Error disconnecting from previous wallet:', disconnectError);
               }
             }
+            
+            // Connect to Farcaster wallet
+            try {
+              await connect({ connector: farcasterConnector });
+              console.log('✅ Connected to Farcaster wallet');
+            } catch (connectError: any) {
+              console.error('Farcaster wallet connection error:', connectError);
+              // Don't block the app if connection fails
+            }
           } else {
-            console.warn('Farcaster connector not found in available connectors');
+            console.log('Already connected to Farcaster wallet');
           }
           
           // Mark frame as ready
@@ -134,7 +153,7 @@ export default function Game() {
     };
     
     initFarcaster();
-  }, [connectors, connect, isConnected]);
+  }, [connectors, connect, disconnect, isConnected, activeConnector]);
 
 
   useEffect(() => {
