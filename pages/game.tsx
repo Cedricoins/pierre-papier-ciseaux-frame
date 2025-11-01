@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useQueryClient } from '@tanstack/react-query';
 
 const CONTRACT_ADDRESS = '0xE7e255228EBA6ad9422E7F8E76aB31ffeb8E8b1B' as `0x${string}`;
 const CONTRACT_ABI = [
@@ -66,6 +67,7 @@ export default function Game() {
   const [farcasterUser, setFarcasterUser] = useState<any>(null);
   const { address, isConnected } = useAccount();
   const { writeContract, data: hash, isPending } = useWriteContract();
+  const queryClient = useQueryClient();
 
   // Check if player exists
   const { data: playerData, refetch: refetchPlayer } = useReadContract({
@@ -83,13 +85,15 @@ export default function Game() {
   const playerExists = playerData && (playerData as any)[6] === true;
 
   // Get on-chain stats
-  const { data: onchainStats, refetch: refetchStats } = useReadContract({
+  const { data: onchainStats, refetch: refetchStats, isLoading: isLoadingStats } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: CONTRACT_ABI,
     functionName: 'obtenirStats',
     query: { 
       enabled: isConnected && !!address && playerExists,
       refetchInterval: false, // Don't auto-poll, we'll refetch manually
+      staleTime: 0, // Always consider data stale to force refetch
+      gcTime: 0, // Don't cache, always fetch fresh (was cacheTime in v4)
     }
   });
 
@@ -98,14 +102,30 @@ export default function Game() {
     if (playerExists && isConnected && address) {
       // Small delay to ensure contract state is updated
       const timer = setTimeout(() => {
+        console.log('Auto-refetching stats due to playerData change');
         refetchStats();
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [playerExists, playerData, isConnected, address, refetchStats]);
+  }, [playerExists, isConnected, address, refetchStats]);
 
-  // Wait for transaction
-  const { isSuccess } = useWaitForTransactionReceipt({ hash });
+  // Also refetch when address changes (new wallet connected)
+  useEffect(() => {
+    if (isConnected && address && playerExists) {
+      console.log('Address changed, refetching stats');
+      const timer = setTimeout(() => {
+        refetchPlayer();
+        refetchStats();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [address, isConnected, playerExists, refetchPlayer, refetchStats]);
+
+  // Wait for transaction receipt
+  const { isSuccess, data: receipt, isLoading: isWaiting } = useWaitForTransactionReceipt({ 
+    hash,
+    confirmations: 2, // Wait for 2 confirmations to ensure state is updated
+  });
   
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
@@ -177,27 +197,83 @@ export default function Game() {
 
 
   useEffect(() => {
-    if (isSuccess && hash) {
-      // Wait a bit for blockchain state to update before refetching
+    if (isSuccess && hash && receipt) {
+      // Transaction is confirmed with 2 confirmations, blockchain state should be updated
       const updateStats = async () => {
         try {
-          // Wait 2 seconds for blockchain state to be updated after transaction
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          console.log('Transaction confirmed, block number:', receipt.blockNumber);
           
-          // Refetch player data first, then stats
+          // Invalidate queries to force fresh fetch
+          // Refetch player data first
+          console.log('Refetching player data...');
           const playerResult = await refetchPlayer();
-          console.log('Refetched player data:', playerResult);
+          console.log('Player data refetched:', playerResult);
           
-          // Wait a bit more and refetch stats
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const statsResult = await refetchStats();
-          console.log('Refetched stats:', statsResult);
+          // Wait a moment then refetch stats - blockchain might need a moment
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          console.log('Invalidating queries and refetching stats...');
+          
+          // Invalidate React Query cache to force fresh fetch - use more aggressive approach
+          await queryClient.invalidateQueries({
+            predicate: (query) => {
+              const queryKey = query.queryKey as any[];
+              return queryKey.some(key => 
+                typeof key === 'object' && 
+                key !== null &&
+                (key.address === CONTRACT_ADDRESS || 
+                 key.functionName === 'obtenirStats' ||
+                 key.functionName === 'joueurs')
+              );
+            }
+          });
+          
+          // Also use refetchQueries as backup
+          await queryClient.refetchQueries({
+            predicate: (query) => {
+              const queryKey = query.queryKey as any[];
+              return queryKey.some(key => 
+                typeof key === 'object' && 
+                key !== null &&
+                (key.address === CONTRACT_ADDRESS || 
+                 key.functionName === 'obtenirStats')
+              );
+            }
+          });
+          
+          // Wait a moment for invalidation to process
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Force refetch stats multiple times to ensure we get the latest
+          let statsResult;
+          for (let i = 0; i < 5; i++) {
+            statsResult = await refetchStats();
+            console.log(`Stats refetch attempt ${i + 1}:`, statsResult);
+            
+            const statsData = statsResult?.data;
+            if (statsData) {
+              console.log('Stats data received (raw):', statsData);
+              console.log('Stats data type:', typeof statsData, Array.isArray(statsData));
+              
+              const wins = getStatsValue(statsData, 1);
+              const losses = getStatsValue(statsData, 2);
+              const ties = getStatsValue(statsData, 3);
+              
+              console.log(`Parsed stats - Wins: ${wins}, Losses: ${losses}, Ties: ${ties}`);
+              
+              // If we got valid stats (non-zero or at least one game played), break
+              if ((wins > 0 || losses > 0 || ties > 0) || i >= 4) {
+                break;
+              }
+            }
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
           
           setResult('✅ Transaction confirmed! Stats updated.');
           setShowResult(true);
         } catch (error) {
           console.error('Error refetching stats:', error);
-          // Still try to refetch even if there's an error
+          // Retry refetch
           try {
             await refetchPlayer();
             await refetchStats();
@@ -211,7 +287,7 @@ export default function Game() {
       
       updateStats();
     }
-  }, [isSuccess, hash, refetchPlayer, refetchStats]);
+  }, [isSuccess, hash, receipt, refetchPlayer, refetchStats]);
 
   const playFree = (playerChoice: number) => {
     setChoice(playerChoice);
@@ -605,7 +681,7 @@ writeContract({
         </div>
 
         {/* On-Chain Stats */}
-        {mode === 'onchain' && onchainStats && (
+        {mode === 'onchain' && playerExists && (
           <div style={{
             marginTop: '1rem',
             padding: '0.8rem 1.2rem',
@@ -613,9 +689,55 @@ writeContract({
             borderRadius: '10px',
             fontSize: '0.85rem',
             textAlign: 'center',
-            backdropFilter: 'blur(10px)'
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.8rem',
+            flexWrap: 'wrap'
           }}>
-            🔥 Current Streak: {getStatsValue(onchainStats, 6, 0).toString()} | 🏆 Best Streak: {getStatsValue(onchainStats, 7, 0).toString()}
+            {isLoadingStats ? (
+              <span>⏳ Loading stats...</span>
+            ) : onchainStats ? (
+              <>
+                <span>🔥 Current Streak: {getStatsValue(onchainStats, 6, 0).toString()} | 🏆 Best Streak: {getStatsValue(onchainStats, 7, 0).toString()}</span>
+                <button
+                  onClick={async () => {
+                    console.log('Manual stats refresh clicked');
+                    try {
+                      await queryClient.invalidateQueries({
+                        predicate: (query) => {
+                          const queryKey = query.queryKey as any[];
+                          return queryKey.some(key => 
+                            typeof key === 'object' && key !== null &&
+                            (key.address === CONTRACT_ADDRESS || key.functionName === 'obtenirStats')
+                          );
+                        }
+                      });
+                      await refetchStats();
+                      console.log('Manual refresh complete');
+                    } catch (e) {
+                      console.error('Manual refresh error:', e);
+                    }
+                  }}
+                  style={{
+                    padding: '0.3rem 0.6rem',
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    borderRadius: '6px',
+                    color: 'white',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  title="Refresh stats"
+                >
+                  🔄
+                </button>
+              </>
+            ) : (
+              <span>No stats available. Try refreshing.</span>
+            )}
           </div>
         )}
 
