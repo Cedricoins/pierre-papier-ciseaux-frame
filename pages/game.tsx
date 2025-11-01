@@ -73,16 +73,36 @@ export default function Game() {
     abi: CONTRACT_ABI,
     functionName: 'joueurs',
     args: address ? [address] : undefined,
-    query: { enabled: isConnected && !!address }
+    query: { 
+      enabled: isConnected && !!address,
+      refetchInterval: false, // Don't auto-poll, we'll refetch manually
+    }
   });
+
+  // Check if player exists (boolean)
+  const playerExists = playerData && (playerData as any)[6] === true;
 
   // Get on-chain stats
   const { data: onchainStats, refetch: refetchStats } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: CONTRACT_ABI,
     functionName: 'obtenirStats',
-    query: { enabled: isConnected && playerData && (playerData as any)[6] === true }
+    query: { 
+      enabled: isConnected && !!address && playerExists,
+      refetchInterval: false, // Don't auto-poll, we'll refetch manually
+    }
   });
+
+  // Refetch stats when playerData changes and player exists
+  useEffect(() => {
+    if (playerExists && isConnected && address) {
+      // Small delay to ensure contract state is updated
+      const timer = setTimeout(() => {
+        refetchStats();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [playerExists, playerData, isConnected, address, refetchStats]);
 
   // Wait for transaction
   const { isSuccess } = useWaitForTransactionReceipt({ hash });
@@ -157,13 +177,41 @@ export default function Game() {
 
 
   useEffect(() => {
-    if (isSuccess) {
-      refetchPlayer();
-      refetchStats();
-      setResult('✅ Transaction confirmed!');
-      setTimeout(() => setShowResult(true), 500);
+    if (isSuccess && hash) {
+      // Wait a bit for blockchain state to update before refetching
+      const updateStats = async () => {
+        try {
+          // Wait 2 seconds for blockchain state to be updated after transaction
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Refetch player data first, then stats
+          const playerResult = await refetchPlayer();
+          console.log('Refetched player data:', playerResult);
+          
+          // Wait a bit more and refetch stats
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const statsResult = await refetchStats();
+          console.log('Refetched stats:', statsResult);
+          
+          setResult('✅ Transaction confirmed! Stats updated.');
+          setShowResult(true);
+        } catch (error) {
+          console.error('Error refetching stats:', error);
+          // Still try to refetch even if there's an error
+          try {
+            await refetchPlayer();
+            await refetchStats();
+          } catch (e) {
+            console.error('Retry refetch failed:', e);
+          }
+          setResult('✅ Transaction confirmed!');
+          setShowResult(true);
+        }
+      };
+      
+      updateStats();
     }
-  }, [isSuccess]);
+  }, [isSuccess, hash, refetchPlayer, refetchStats]);
 
   const playFree = (playerChoice: number) => {
     setChoice(playerChoice);
@@ -201,8 +249,7 @@ export default function Game() {
       return;
     }
 
-    const playerExists = playerData && (playerData as any)[6] === true;
-if (!playerExists) {
+    if (!playerExists) {
       setShowNameInput(true);
       return;
     }
@@ -251,13 +298,48 @@ writeContract({
     setShowResult(false);
   };
 
+  // Calculate current score - handle both array and tuple formats from Wagmi
+  // Wagmi can return either an array or object depending on ABI format
+  const getStatsValue = (stats: any, index: number, fallback = 0): number => {
+    if (!stats) return fallback;
+    
+    // If it's an array-like object (tuple from contract)
+    if (Array.isArray(stats)) {
+      return Number(stats[index] || fallback);
+    }
+    
+    // If it's an object with named properties
+    if (typeof stats === 'object') {
+      // Try common property names or indexed access
+      const keys = Object.keys(stats);
+      if (keys.length > index) {
+        return Number(stats[keys[index]] || fallback);
+      }
+      // Try direct index access
+      return Number(stats[index] || fallback);
+    }
+    
+    return fallback;
+  };
+
   const currentScore = mode === 'free' 
     ? freeScore 
     : {
-        wins: Number(onchainStats?.[1] || 0),
-        losses: Number(onchainStats?.[2] || 0),
-        ties: Number(onchainStats?.[3] || 0)
+        wins: getStatsValue(onchainStats, 1, 0),  // victoires
+        losses: getStatsValue(onchainStats, 2, 0), // defaites
+        ties: getStatsValue(onchainStats, 3, 0)    // egalites
       };
+  
+  // Debug log to see what we're getting
+  useEffect(() => {
+    if (mode === 'onchain') {
+      console.log('On-chain stats raw:', onchainStats);
+      console.log('Player exists:', playerExists);
+      console.log('Is connected:', isConnected);
+      console.log('Address:', address);
+      console.log('Calculated score:', currentScore);
+    }
+  }, [mode, onchainStats, currentScore, playerExists, isConnected, address]);
 
   return (
     <>
@@ -533,7 +615,7 @@ writeContract({
             textAlign: 'center',
             backdropFilter: 'blur(10px)'
           }}>
-            🔥 Current Streak: {onchainStats[6].toString()} | 🏆 Best Streak: {onchainStats[7].toString()}
+            🔥 Current Streak: {getStatsValue(onchainStats, 6, 0).toString()} | 🏆 Best Streak: {getStatsValue(onchainStats, 7, 0).toString()}
           </div>
         )}
 
