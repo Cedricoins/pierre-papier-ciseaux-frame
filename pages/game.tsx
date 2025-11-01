@@ -65,6 +65,8 @@ export default function Game() {
   const [showNameInput, setShowNameInput] = useState(false);
   const [isInFrame, setIsInFrame] = useState(false);
   const [farcasterUser, setFarcasterUser] = useState<any>(null);
+  // Optimistic stats for instant UI updates
+  const [optimisticStats, setOptimisticStats] = useState<{ wins: number; losses: number; ties: number } | null>(null);
   const { address, isConnected } = useAccount();
   const { writeContract, data: hash, isPending } = useWriteContract();
   const queryClient = useQueryClient();
@@ -84,47 +86,38 @@ export default function Game() {
   // Check if player exists (boolean)
   const playerExists = playerData && (playerData as any)[6] === true;
 
-  // Get on-chain stats
+  // Get on-chain stats - optimized for speed
   const { data: onchainStats, refetch: refetchStats, isLoading: isLoadingStats } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: CONTRACT_ABI,
     functionName: 'obtenirStats',
     query: { 
       enabled: isConnected && !!address && playerExists,
-      refetchInterval: false, // Don't auto-poll, we'll refetch manually
-      staleTime: 0, // Always consider data stale to force refetch
-      gcTime: 0, // Don't cache, always fetch fresh (was cacheTime in v4)
+      refetchInterval: false,
+      staleTime: 1000, // Cache for 1 second for better performance
+      gcTime: 5000, // Keep in cache for 5 seconds
     }
   });
 
-  // Refetch stats when playerData changes and player exists
+  // Refetch stats when playerData changes - optimized (no delays)
   useEffect(() => {
     if (playerExists && isConnected && address) {
-      // Small delay to ensure contract state is updated
-      const timer = setTimeout(() => {
-        console.log('Auto-refetching stats due to playerData change');
-        refetchStats();
-      }, 500);
-      return () => clearTimeout(timer);
+      refetchStats();
     }
   }, [playerExists, isConnected, address, refetchStats]);
 
-  // Also refetch when address changes (new wallet connected)
+  // Refetch when address changes (new wallet connected) - optimized
   useEffect(() => {
     if (isConnected && address && playerExists) {
-      console.log('Address changed, refetching stats');
-      const timer = setTimeout(() => {
-        refetchPlayer();
-        refetchStats();
-      }, 1000);
-      return () => clearTimeout(timer);
+      refetchPlayer();
+      refetchStats();
     }
   }, [address, isConnected, playerExists, refetchPlayer, refetchStats]);
 
-  // Wait for transaction receipt
+  // Wait for transaction receipt - only 1 confirmation for faster updates
   const { isSuccess, data: receipt, isLoading: isWaiting } = useWaitForTransactionReceipt({ 
     hash,
-    confirmations: 2, // Wait for 2 confirmations to ensure state is updated
+    confirmations: 1, // Reduced to 1 for faster response
   });
   
   const { connect, connectors } = useConnect();
@@ -198,29 +191,15 @@ export default function Game() {
 
   useEffect(() => {
     if (isSuccess && hash && receipt) {
-      // Transaction is confirmed with 2 confirmations, blockchain state should be updated
+      // Transaction confirmed - update stats quickly
       const updateStats = async () => {
         try {
-          console.log('Transaction confirmed, block number:', receipt.blockNumber);
-          
-          // Invalidate queries to force fresh fetch
-          // Refetch player data first
-          console.log('Refetching player data...');
-          const playerResult = await refetchPlayer();
-          console.log('Player data refetched:', playerResult);
-          
-          // Wait a moment then refetch stats - blockchain might need a moment
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          console.log('Invalidating queries and refetching stats...');
-          
-          // Invalidate React Query cache to force fresh fetch - use more aggressive approach
-          await queryClient.invalidateQueries({
+          // Immediately invalidate and refetch - no delays
+          queryClient.invalidateQueries({
             predicate: (query) => {
               const queryKey = query.queryKey as any[];
               return queryKey.some(key => 
-                typeof key === 'object' && 
-                key !== null &&
+                typeof key === 'object' && key !== null &&
                 (key.address === CONTRACT_ADDRESS || 
                  key.functionName === 'obtenirStats' ||
                  key.functionName === 'joueurs')
@@ -228,66 +207,30 @@ export default function Game() {
             }
           });
           
-          // Also use refetchQueries as backup
-          await queryClient.refetchQueries({
-            predicate: (query) => {
-              const queryKey = query.queryKey as any[];
-              return queryKey.some(key => 
-                typeof key === 'object' && 
-                key !== null &&
-                (key.address === CONTRACT_ADDRESS || 
-                 key.functionName === 'obtenirStats')
-              );
-            }
-          });
+          // Refetch in parallel for speed
+          const [playerResult, statsResult] = await Promise.all([
+            refetchPlayer(),
+            refetchStats()
+          ]);
           
-          // Wait a moment for invalidation to process
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Clear optimistic update since we have real data
+          setOptimisticStats(null);
           
-          // Force refetch stats multiple times to ensure we get the latest
-          let statsResult;
-          for (let i = 0; i < 5; i++) {
-            statsResult = await refetchStats();
-            console.log(`Stats refetch attempt ${i + 1}:`, statsResult);
-            
-            const statsData = statsResult?.data;
-            if (statsData) {
-              console.log('Stats data received (raw):', statsData);
-              console.log('Stats data type:', typeof statsData, Array.isArray(statsData));
-              
-              const wins = getStatsValue(statsData, 1);
-              const losses = getStatsValue(statsData, 2);
-              const ties = getStatsValue(statsData, 3);
-              
-              console.log(`Parsed stats - Wins: ${wins}, Losses: ${losses}, Ties: ${ties}`);
-              
-              // If we got valid stats (non-zero or at least one game played), break
-              if ((wins > 0 || losses > 0 || ties > 0) || i >= 4) {
-                break;
-              }
-            }
-            await new Promise(resolve => setTimeout(resolve, 1500));
-          }
-          
-          setResult('✅ Transaction confirmed! Stats updated.');
+          setResult('✅ Transaction confirmed!');
           setShowResult(true);
         } catch (error) {
           console.error('Error refetching stats:', error);
-          // Retry refetch
-          try {
-            await refetchPlayer();
-            await refetchStats();
-          } catch (e) {
-            console.error('Retry refetch failed:', e);
-          }
+          // Still clear optimistic and show success
+          setOptimisticStats(null);
           setResult('✅ Transaction confirmed!');
           setShowResult(true);
         }
       };
       
+      // Start update immediately, no delay
       updateStats();
     }
-  }, [isSuccess, hash, receipt, refetchPlayer, refetchStats]);
+  }, [isSuccess, hash, receipt, refetchPlayer, refetchStats, queryClient]);
 
   const playFree = (playerChoice: number) => {
     setChoice(playerChoice);
@@ -332,19 +275,56 @@ export default function Game() {
 
     try {
       setChoice(playerChoice);
-      setResult('⏳ Sending transaction...');
+      
+      // Generate computer choice client-side for immediate result display
+      const computerChoice = Math.floor(Math.random() * 3);
+      const choices = ['🪨 Rock', '📄 Paper', '✂️ Scissors'];
+      
+      // Determine outcome optimistically (client-side prediction)
+      let outcome: 'win' | 'lose' | 'tie' = 'tie';
+      if (playerChoice === computerChoice) {
+        outcome = 'tie';
+      } else if (
+        (playerChoice === 0 && computerChoice === 2) ||
+        (playerChoice === 1 && computerChoice === 0) ||
+        (playerChoice === 2 && computerChoice === 1)
+      ) {
+        outcome = 'win';
+      } else {
+        outcome = 'lose';
+      }
+      
+      // Show immediate optimistic result
+      const outcomeText = outcome === 'win' ? '🎉 You Win!' : outcome === 'lose' ? '😞 You Lose' : '🤝 Tie!';
+      setResult(`${choices[playerChoice]} vs ${choices[computerChoice]} • ${outcomeText} (⏳ Confirming...)`);
       setShowResult(true);
       
-writeContract({
-  address: CONTRACT_ADDRESS,
-  abi: CONTRACT_ABI,
-  functionName: 'jouer',
-  args: [BigInt(playerChoice)],
-} as any);
+      // Update optimistic stats immediately for instant UI feedback
+      const currentWins = getStatsValue(onchainStats, 1, 0);
+      const currentLosses = getStatsValue(onchainStats, 2, 0);
+      const currentTies = getStatsValue(onchainStats, 3, 0);
+      
+      if (outcome === 'win') {
+        setOptimisticStats({ wins: currentWins + 1, losses: currentLosses, ties: currentTies });
+      } else if (outcome === 'lose') {
+        setOptimisticStats({ wins: currentWins, losses: currentLosses + 1, ties: currentTies });
+      } else {
+        setOptimisticStats({ wins: currentWins, losses: currentLosses, ties: currentTies + 1 });
+      }
+      
+      // Send transaction in background (non-blocking)
+      writeContract({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'jouer',
+        args: [BigInt(playerChoice)],
+      } as any);
 
     } catch (error) {
       console.error(error);
+      setOptimisticStats(null); // Clear optimistic on error
       setResult('❌ Transaction failed');
+      setShowResult(true);
     }
   };
 
@@ -398,9 +378,10 @@ writeContract({
     return fallback;
   };
 
+  // Use optimistic stats if available, otherwise use on-chain stats
   const currentScore = mode === 'free' 
     ? freeScore 
-    : {
+    : optimisticStats || {
         wins: getStatsValue(onchainStats, 1, 0),  // victoires
         losses: getStatsValue(onchainStats, 2, 0), // defaites
         ties: getStatsValue(onchainStats, 3, 0)    // egalites
