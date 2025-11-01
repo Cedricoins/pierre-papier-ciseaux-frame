@@ -86,55 +86,55 @@ export default function Game() {
 
   // Wait for transaction
   const { isSuccess } = useWaitForTransactionReceipt({ hash });
-useEffect(() => {
-  const initFarcaster = async () => {
-    const isInFarcaster = window.parent !== window;
-    setIsInFrame(isInFarcaster);
-    
-    if (isInFarcaster) {
-      try {
-        const context = await sdk.context;
-        setFarcasterUser(context.user);
-        sdk.actions.ready();
-      } catch (error) {
-        console.error('Farcaster SDK error:', error);
-        sdk.actions.ready(); // Call ready anyway
-      }
-    }
-  };
   
-  initFarcaster();
-}, []);
+  const { connect, connectors } = useConnect();
 
-const { connect, connectors } = useConnect();
-
-// Auto-connect Farcaster wallet when in frame
-useEffect(() => {
-  const initFarcaster = async () => {
-    const isInFarcaster = window.parent !== window;
-    setIsInFrame(isInFarcaster);
-    
-    if (isInFarcaster) {
-      try {
-        const context = await sdk.context;
-        setFarcasterUser(context.user);
-        
-        // Auto-connect Farcaster wallet
-        const farcasterConnector = connectors.find(c => c.id === 'farcaster');
-        if (farcasterConnector && !isConnected) {
-          connect({ connector: farcasterConnector });
+  // Initialize Farcaster SDK and auto-connect Farcaster wallet when in frame
+  useEffect(() => {
+    const initFarcaster = async () => {
+      const isInFarcaster = window.parent !== window;
+      setIsInFrame(isInFarcaster);
+      
+      if (isInFarcaster) {
+        try {
+          // Initialize Farcaster SDK context
+          const context = await sdk.context;
+          setFarcasterUser(context.user);
+          
+          // Find and connect to Farcaster wallet connector
+          const farcasterConnector = connectors.find(c => c.id === 'farcaster');
+          
+          if (farcasterConnector) {
+            // Auto-connect if not already connected
+            if (!isConnected) {
+              try {
+                await connect({ connector: farcasterConnector });
+                console.log('✅ Connected to Farcaster wallet');
+              } catch (connectError: any) {
+                console.error('Farcaster wallet connection error:', connectError);
+                // Don't block the app if connection fails
+              }
+            }
+          } else {
+            console.warn('Farcaster connector not found in available connectors');
+          }
+          
+          // Mark frame as ready
+          sdk.actions.ready();
+        } catch (error) {
+          console.error('Farcaster SDK initialization error:', error);
+          // Call ready anyway to not block the frame
+          try {
+            sdk.actions.ready();
+          } catch (readyError) {
+            console.error('Error calling sdk.actions.ready():', readyError);
+          }
         }
-        
-        sdk.actions.ready();
-      } catch (error) {
-        console.error('Farcaster SDK error:', error);
-        sdk.actions.ready();
       }
-    }
-  };
-  
-  initFarcaster();
-}, [connectors, connect, isConnected]);
+    };
+    
+    initFarcaster();
+  }, [connectors, connect, isConnected]);
 
 
   useEffect(() => {
