@@ -3,7 +3,7 @@ import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
-import * as farcasterConnector from '@farcaster/frame-wagmi-connector';
+import frameConnector from '@farcaster/frame-wagmi-connector';
 import { injected, walletConnect } from 'wagmi/connectors';
 import '@rainbow-me/rainbowkit/styles.css';
 
@@ -12,13 +12,10 @@ const config = createConfig({
   transports: {
     [base.id]: http(),
   },
-  connectors: [
-    frameConnector(),
-    injected(),
-    walletConnect({
-      projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'YOUR_PROJECT_ID',
-    }),
-  ],
+connectors: [
+  frameConnector(),
+  injected(),
+],
 });
 
 const queryClient = new QueryClient();
