@@ -356,24 +356,117 @@ writeContract({
         {/* Connect Wallet (On-Chain mode) */}
       
         {mode === 'onchain' && !isInFrame && (
-  <div style={{ marginTop: '1rem', zIndex: 1 }}>
-    <ConnectButton />
-  </div>
-)}
+          <div style={{ marginTop: '1rem', zIndex: 1 }}>
+            <ConnectButton />
+          </div>
+        )}
 
-{mode === 'onchain' && isInFrame && isConnected && (
-  <div style={{ 
-    marginTop: '1rem', 
-    padding: '0.8rem 1.2rem',
-    backgroundColor: 'rgba(16, 185, 129, 0.2)',
-    borderRadius: '10px',
-    fontSize: '0.9rem',
-    backdropFilter: 'blur(10px)',
-    border: '1px solid rgba(255,255,255,0.3)'
+        {/* Farcaster Wallet Connect Button (when in frame) */}
+        {mode === 'onchain' && isInFrame && !isConnected && (
+          <div style={{ marginTop: '1rem', zIndex: 1 }}>
+            <button
+              onClick={async () => {
+                const farcasterConnector = connectors.find(c => c.id === 'farcaster');
+                if (farcasterConnector) {
+                  try {
+                    await connect({ connector: farcasterConnector });
+                    console.log('✅ Connected to Farcaster wallet');
+                  } catch (error: any) {
+                    console.error('Farcaster wallet connection error:', error);
+                    setResult('❌ Failed to connect to Farcaster wallet');
+                    setShowResult(true);
+                  }
+                }
+              }}
+              disabled={isPending}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.8rem',
+                padding: '0.9rem 1.8rem',
+                backgroundColor: 'rgba(139, 92, 246, 0.3)',
+                backdropFilter: 'blur(10px)',
+                border: '2px solid rgba(139, 92, 246, 0.5)',
+                borderRadius: '12px',
+                color: 'white',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: isPending ? 'not-allowed' : 'pointer',
+                transition: 'all 0.3s',
+                boxShadow: '0 4px 15px rgba(139, 92, 246, 0.3)',
+                opacity: isPending ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!isPending) {
+                  e.currentTarget.style.backgroundColor = 'rgba(139, 92, 246, 0.4)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(139, 92, 246, 0.4)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isPending) {
+                  e.currentTarget.style.backgroundColor = 'rgba(139, 92, 246, 0.3)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(139, 92, 246, 0.3)';
+                }
+              }}
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                style={{ flexShrink: 0 }}
+              >
+                <path
+                  d="M21 18v1a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1h-9a2 2 0 00-2 2v8a2 2 0 002 2h9zm-9-2h10V8H12v8zm4-2.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span>{isPending ? 'Connecting...' : 'Connect Farcaster Wallet'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Connected Status (when in frame and connected) */}
+        {mode === 'onchain' && isInFrame && isConnected && activeConnector?.id === 'farcaster' && (
+          <div style={{ 
+            marginTop: '1rem', 
+            padding: '0.8rem 1.2rem',
+            backgroundColor: 'rgba(16, 185, 129, 0.2)',
+            borderRadius: '10px',
+            fontSize: '0.9rem',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            justifyContent: 'center'
   }}>
-    ✅ Connected with Farcaster Wallet
-  </div>
-)}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="#10b981"/>
+            </svg>
+            <span>✅ Connected with Farcaster Wallet</span>
+          </div>
+        )}
+
+        {/* Wrong wallet connected warning */}
+        {mode === 'onchain' && isInFrame && isConnected && activeConnector?.id !== 'farcaster' && (
+          <div style={{ 
+            marginTop: '1rem', 
+            padding: '0.8rem 1.2rem',
+            backgroundColor: 'rgba(239, 68, 68, 0.2)',
+            borderRadius: '10px',
+            fontSize: '0.9rem',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.3)',
+            textAlign: 'center'
+          }}>
+            ⚠️ Please connect Farcaster Wallet
+          </div>
+        )}
 
         {/* Score Board */}
         <div style={{
