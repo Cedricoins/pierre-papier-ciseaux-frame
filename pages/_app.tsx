@@ -3,7 +3,7 @@ import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
-import { frameConnector } from '@farcaster/frame-wagmi-connector';
+import frameConnector from '@farcaster/frame-wagmi-connector';;
 import { injected, walletConnect } from 'wagmi/connectors';
 import '@rainbow-me/rainbowkit/styles.css';
 
