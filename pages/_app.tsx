@@ -2,18 +2,23 @@ import type { AppProps } from 'next/app';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RainbowKitProvider, getDefaultConfig, darkTheme } from '@rainbow-me/rainbowkit';
-import * as frameConnector from '@farcaster/frame-wagmi-connector'
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
+import { frameConnector } from '@farcaster/frame-wagmi-connector';
+import { injected, walletConnect } from 'wagmi/connectors';
 import '@rainbow-me/rainbowkit/styles.css';
 
-const config = getDefaultConfig({
-  appName: 'Rock Paper Scissors',
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'YOUR_PROJECT_ID',
+const config = createConfig({
   chains: [base],
   transports: {
     [base.id]: http(),
   },
-  connectors: [frameConnector()],
+  connectors: [
+    frameConnector(),
+    injected(),
+    walletConnect({
+      projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'YOUR_PROJECT_ID',
+    }),
+  ],
 });
 
 const queryClient = new QueryClient();
