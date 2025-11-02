@@ -87,28 +87,29 @@ export default function Game() {
   const playerExists = playerData && (playerData as any)[6] === true;
 
   // Get on-chain stats - optimized for speed
-  const { data: onchainStats, refetch: refetchStats, isLoading: isLoadingStats } = useReadContract({
+  const { data: onchainStats, refetch: refetchStats, isLoading: isLoadingStats, isFetching: isFetchingStats } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: CONTRACT_ABI,
     functionName: 'obtenirStats',
     query: { 
       enabled: isConnected && !!address && playerExists,
       refetchInterval: false,
-      staleTime: 1000, // Cache for 1 second for better performance
+      staleTime: 0, // Always refetch when requested
       gcTime: 5000, // Keep in cache for 5 seconds
     }
   });
 
-  // Refetch stats when playerData changes - optimized (no delays)
+  // Refetch stats when playerData changes - but only if not already optimistic
   useEffect(() => {
-    if (playerExists && isConnected && address) {
+    if (playerExists && isConnected && address && !optimisticStats) {
       refetchStats();
     }
-  }, [playerExists, isConnected, address, refetchStats]);
+  }, [playerExists, isConnected, address, refetchStats, optimisticStats]);
 
-  // Refetch when address changes (new wallet connected) - optimized
+  // Refetch when address changes (new wallet connected)
   useEffect(() => {
     if (isConnected && address && playerExists) {
+      setOptimisticStats(null); // Clear optimistic on address change
       refetchPlayer();
       refetchStats();
     }
@@ -213,16 +214,42 @@ export default function Game() {
             refetchStats()
           ]);
           
-          // Clear optimistic update since we have real data
-          setOptimisticStats(null);
+          // Verify we got valid stats before clearing optimistic
+          const statsData = statsResult?.data;
+          if (statsData) {
+            const wins = getStatsValue(statsData, 1, 0);
+            const losses = getStatsValue(statsData, 2, 0);
+            const ties = getStatsValue(statsData, 3, 0);
+            
+            console.log('Stats from blockchain:', { wins, losses, ties });
+            console.log('Current optimistic stats:', optimisticStats);
+            
+            // Only clear optimistic if we have valid stats data that matches or exceeds optimistic
+            // This ensures the counter doesn't jump backwards
+            if (wins >= 0 && losses >= 0 && ties >= 0) {
+              // If blockchain stats match or exceed optimistic, we can clear it
+              if (!optimisticStats || 
+                  (wins >= optimisticStats.wins && 
+                   losses >= optimisticStats.losses && 
+                   ties >= optimisticStats.ties)) {
+                setOptimisticStats(null);
+                console.log('Cleared optimistic stats, using blockchain stats');
+              } else {
+                console.log('Blockchain stats not yet updated, keeping optimistic');
+              }
+            } else {
+              console.warn('Invalid stats received, keeping optimistic update');
+            }
+          } else {
+            console.warn('No stats data received from refetch');
+          }
           
           setResult('✅ Transaction confirmed!');
           setShowResult(true);
         } catch (error) {
           console.error('Error refetching stats:', error);
-          // Still clear optimistic and show success
-          setOptimisticStats(null);
-          setResult('✅ Transaction confirmed!');
+          // Don't clear optimistic on error - keep showing optimistic update
+          setResult('✅ Transaction confirmed! (Stats updating...)');
           setShowResult(true);
         }
       };
@@ -379,13 +406,38 @@ export default function Game() {
   };
 
   // Use optimistic stats if available, otherwise use on-chain stats
+  // Always prefer optimistic for instant feedback until blockchain confirms
   const currentScore = mode === 'free' 
     ? freeScore 
-    : optimisticStats || {
+    : (optimisticStats ? optimisticStats : {
         wins: getStatsValue(onchainStats, 1, 0),  // victoires
         losses: getStatsValue(onchainStats, 2, 0), // defaites
         ties: getStatsValue(onchainStats, 3, 0)    // egalites
-      };
+      });
+  
+  // Keep optimistic stats until real stats catch up or exceed
+  useEffect(() => {
+    if (optimisticStats && onchainStats && !isFetchingStats) {
+      const realWins = getStatsValue(onchainStats, 1, 0);
+      const realLosses = getStatsValue(onchainStats, 2, 0);
+      const realTies = getStatsValue(onchainStats, 3, 0);
+      
+      // Clear optimistic when blockchain stats match or exceed optimistic
+      // This ensures the counter never goes backwards
+      const blockchainCaughtUp = 
+        realWins >= optimisticStats.wins &&
+        realLosses >= optimisticStats.losses &&
+        realTies >= optimisticStats.ties;
+      
+      if (blockchainCaughtUp) {
+        console.log('Blockchain stats caught up, clearing optimistic:', {
+          optimistic: optimisticStats,
+          blockchain: { wins: realWins, losses: realLosses, ties: realTies }
+        });
+        setOptimisticStats(null);
+      }
+    }
+  }, [optimisticStats, onchainStats, isFetchingStats]);
   
   // Debug log to see what we're getting
   useEffect(() => {
