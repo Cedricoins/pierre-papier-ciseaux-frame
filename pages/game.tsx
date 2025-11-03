@@ -6,7 +6,7 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useQueryClient } from '@tanstack/react-query';
 
-const CONTRACT_ADDRESS = '0xE7e255228EBA6ad9422E7F8E76aB31ffeb8E8b1B' as `0x${string}`;
+const CONTRACT_ADDRESS = '0xb89e033cc1c909815fab56c371d50a80a05df422' as `0x${string}`;
 const CONTRACT_ABI = [
   {
     inputs: [{ internalType: 'uint256', name: '_choix', type: 'uint256' }],
@@ -932,7 +932,7 @@ export default function Game() {
             {mode === 'onchain' ? '⛓️ On-Chain Mode' : '🆓 Free Play Mode'}
           </div>
           <a 
-            href="https://basescan.org/address/0xE7e255228EBA6ad9422E7F8E76aB31ffeb8E8b1B"
+            href="https://basescan.org/address/0xb89e033cc1c909815fab56c371d50a80a05df422"
             target="_blank"
             rel="noopener noreferrer"
             style={{ 
