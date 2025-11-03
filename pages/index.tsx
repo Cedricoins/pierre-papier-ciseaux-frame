@@ -62,9 +62,9 @@ export default function Home() {
 
         <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#fff3e0', borderRadius: '8px' }}>
           <h2>⚙️ Contrat :</h2>
-          <p>Base Mainnet : <code>0xE7e255228EBA6ad9422E7F8E76aB31ffeb8E8b1B</code></p>
+          <p>Base Mainnet : <code>0xb89e033cc1c909815fab56c371d50a80a05df422</code></p>
           <a 
-            href="https://basescan.org/address/0xE7e255228EBA6ad9422E7F8E76aB31ffeb8E8b1B" 
+            href="https://basescan.org/address/0xb89e033cc1c909815fab56c371d50a80a05df422" 
             target="_blank" 
             rel="noopener noreferrer"
             style={{ color: '#1976d2' }}
